@@ -41,6 +41,24 @@ class Doctor(models.Model):
         db_table = "doctor"
 
 
+class CareRequestList(models.Model):
+    patient = models.ForeignKey(
+        Patient, on_delete=models.CASCADE, verbose_name="환자 id"
+    )
+    doctor = models.ForeignKey(
+        Doctor, on_delete=models.CASCADE, verbose_name="의사 id"
+    )
+    book_time = models.DateField(verbose_name="희망 진료 시각")
+    created_at = models.DateTimeField(
+        auto_now_add=True, verbose_name="예약 요청 시각"
+    )
+    expire_time = models.DateTimeField(verbose_name="요청 만료 시각")
+    is_booked = models.BooleanField(default=False, verbose_name="진료 요청 수락 여부")
+
+    class Meta:
+        db_table = "care"
+
+
 class WeekDayTime(models.Model):
     doctor = models.ForeignKey(
         Doctor, on_delete=models.CASCADE, verbose_name="의사"
