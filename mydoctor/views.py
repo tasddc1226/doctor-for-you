@@ -3,9 +3,10 @@ from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
 
 from django.db.models import Q
+from django.shortcuts import get_object_or_404
 
-from .models import Doctor, Patient, WeekDayTime, WeekendTime
-from .serializers import DoctorNameSerializer
+from .models import Doctor, Patient, WeekDayTime, WeekendTime, CareRequestList
+from .serializers import DoctorNameSerializer, CareRequestSerializer
 import json
 import datetime
 
@@ -55,17 +56,66 @@ class DoctorSeaerchView(ListAPIView):
         no = date.isoweekday()
 
         if no < 6:
+            # 평일인 경우
             queryset = WeekDayTime.objects.select_related("doctor")
 
         else:
+            # 주말인 경우
             queryset = WeekendTime.objects.select_related("doctor").filter(
                 closed=False
             )
 
         objs = queryset.filter(
-            to_hour__gte=data["hour"], from_hour__lte=data["hour"]
+            Q(to_hour__gte=data["hour"], lunch_to__lt=data["hour"])
+            | Q(lunch_from__gt=data["hour"], from_hour__lte=data["hour"])
         ).values_list("doctor")
 
         results = self.get_queryset().filter(id__in=objs)
         serializer = self.get_serializer(results, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class CareRequestView(ListAPIView):
+    queryset = CareRequestList.objects.all()
+    serializer_class = CareRequestSerializer
+
+    def post(self, request, *args, **kwargs):
+        data = json.loads(request.body)
+        print(data)
+        ## 환자 id, 의사 id 예외 처리
+        patient = get_object_or_404(Patient, id=data["patient_id"])
+        doctor = get_object_or_404(Doctor, id=data["doctor_id"])
+
+        ## 요청된 예약 진료 시각에 대하여 해당 의사가 진료 가능한지 확인
+        date = datetime.datetime(
+            data["year"], data["month"], data["day"], data["hour"]
+        )
+        no = date.isoweekday()
+        print(date)
+
+        if no < 6:
+            # 진료 요청일이 평일인 경우
+            queryset = WeekDayTime.objects.filter(doctor=data["doctor_id"])
+        else:
+            # 진료 요청일이 주말인 경우
+            queryset = WeekendTime.objects.filter(
+                doctor=data["doctor_id"], closed=False
+            )
+
+        objs = queryset.filter(
+            Q(to_hour__gte=data["hour"], lunch_to__lt=data["hour"])
+            | Q(lunch_from__gt=data["hour"], from_hour__lte=data["hour"])
+        )
+
+        if objs:
+            # TODO: 예약이 가능하다면 요청 만료 시각 계산
+            ## -> 진료 요청한 후 +20분까지 예약이 유효함.
+            ## -> 만약 요청된 시간에 의사가 부재일 경우 다음날 Or 점심시간 이후 +15분 까지 유효
+            pass
+        else:
+            return Response(
+                {"message": "진료 예약이 불가능합니다. 다른 시간을 선택해주세요."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(status=status.HTTP_200_OK)
