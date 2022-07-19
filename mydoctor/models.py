@@ -57,10 +57,10 @@ class WeekDayTime(models.Model):
     to_hour = models.PositiveSmallIntegerField(
         choices=HOUR_OF_DAY_24, verbose_name="영업 종료 시각"
     )
-    launch_from = models.PositiveSmallIntegerField(
+    lunch_from = models.PositiveSmallIntegerField(
         choices=HOUR_OF_DAY_24, verbose_name="점심 시작 시각"
     )
-    launch_to = models.PositiveSmallIntegerField(
+    lunch_to = models.PositiveSmallIntegerField(
         choices=HOUR_OF_DAY_24, verbose_name="점심 종료 시각"
     )
 
