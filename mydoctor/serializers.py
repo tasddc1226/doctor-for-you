@@ -10,7 +10,7 @@ class DoctorNameSerializer(serializers.Serializer):
         fields = ["name"]
 
 
-class CareRequestSerializer(serializers.Serializer):
+class CareRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = CareRequestList
         fields = "__all__"
