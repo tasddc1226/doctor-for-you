@@ -48,7 +48,7 @@ class CareRequestList(models.Model):
     doctor = models.ForeignKey(
         Doctor, on_delete=models.CASCADE, verbose_name="의사 id"
     )
-    book_time = models.DateField(verbose_name="희망 진료 시각")
+    book_time = models.DateTimeField(verbose_name="희망 진료 시각")
     created_at = models.DateTimeField(
         auto_now_add=True, verbose_name="예약 요청 시각"
     )
