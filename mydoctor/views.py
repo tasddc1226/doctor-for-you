@@ -5,10 +5,10 @@ from rest_framework.response import Response
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 
+import json
 from .models import Doctor, Patient, WeekDayTime, WeekendTime, CareRequestList
 from .serializers import DoctorNameSerializer, CareRequestSerializer
-import json
-import datetime
+from datetime import datetime, timedelta, date
 
 
 class DoctorSeaerchView(ListAPIView):
@@ -50,25 +50,31 @@ class DoctorSeaerchView(ListAPIView):
         output : 영업 중인 의사 리스트
         """
         data = json.loads(request.body)
-        date = datetime.datetime(
-            data["year"], data["month"], data["day"], data["hour"]
+        date_from_data = datetime(
+            data["year"],
+            data["month"],
+            data["day"],
+            data["hour"],
+            data["min"],
         )
-        no = date.isoweekday()
+        no = date_from_data.isoweekday()
 
         if no < 6:
             # 평일인 경우
             queryset = WeekDayTime.objects.select_related("doctor")
+            objs = queryset.filter(
+                Q(to_hour__gte=data["hour"], lunch_to__lt=data["hour"])
+                | Q(lunch_from__gt=data["hour"], from_hour__lte=data["hour"])
+            ).values_list("doctor")
 
         else:
             # 주말인 경우
             queryset = WeekendTime.objects.select_related("doctor").filter(
                 closed=False
             )
-
-        objs = queryset.filter(
-            Q(to_hour__gte=data["hour"], lunch_to__lt=data["hour"])
-            | Q(lunch_from__gt=data["hour"], from_hour__lte=data["hour"])
-        ).values_list("doctor")
+            objs = queryset.filter(
+                to_hour__gte=data["hour"], from_hour__lte=data["hour"]
+            ).values_list("doctor")
 
         results = self.get_queryset().filter(id__in=objs)
         serializer = self.get_serializer(results, many=True)
@@ -79,43 +85,125 @@ class CareRequestView(ListAPIView):
     queryset = CareRequestList.objects.all()
     serializer_class = CareRequestSerializer
 
+    def _is_valid_request_ids(self, p_id, d_id):
+        ## 환자 id, 의사 id 예외 처리
+        patient = get_object_or_404(Patient, id=p_id)
+        doctor = get_object_or_404(Doctor, id=d_id)
+
+    def _convert_hour_list_to_datetime_object_list(self, hour_list, now):
+        res = []
+        for hour in hour_list:
+            res.append(
+                datetime(now.year, now.month, now.day) + timedelta(hours=hour)
+            )
+        return res
+
+    def _set_conditions(self, datetime_objs_list, now):
+        if len(datetime_objs_list) > 2:
+            is_workday_weekday = (
+                datetime_objs_list[0] <= now < datetime_objs_list[1]
+                or datetime_objs_list[2] <= now < datetime_objs_list[3]
+            )
+            is_lunch_time = datetime_objs_list[1] <= now < datetime_objs_list[2]
+            is_workday_weekend = False
+        else:
+            is_workday_weekday = False
+            is_workday_weekend = (
+                datetime_objs_list[0] <= now < datetime_objs_list[1]
+            )
+            is_lunch_time = False
+        return is_workday_weekday, is_workday_weekend, is_lunch_time
+
     def post(self, request, *args, **kwargs):
         data = json.loads(request.body)
-        print(data)
-        ## 환자 id, 의사 id 예외 처리
-        patient = get_object_or_404(Patient, id=data["patient_id"])
-        doctor = get_object_or_404(Doctor, id=data["doctor_id"])
+        self._is_valid_request_ids(data["patient_id"], data["doctor_id"])
 
-        ## 요청된 예약 진료 시각에 대하여 해당 의사가 진료 가능한지 확인
-        date = datetime.datetime(
-            data["year"], data["month"], data["day"], data["hour"]
+        ## 희망 예약 진료 시각에 대하여 해당 의사가 진료가 가능한지 확인
+        book_time = datetime(
+            data["year"],
+            data["month"],
+            data["day"],
+            data["hour"],
+            data["min"],
         )
-        no = date.isoweekday()
-        print(date)
+        no = book_time.isoweekday()
 
         if no < 6:
             # 진료 요청일이 평일인 경우
             queryset = WeekDayTime.objects.filter(doctor=data["doctor_id"])
+
+            objs = queryset.filter(
+                Q(to_hour__gte=data["hour"], lunch_to__lt=data["hour"])
+                | Q(lunch_from__gt=data["hour"], from_hour__lte=data["hour"])
+            ).values_list("from_hour", "lunch_from", "lunch_to", "to_hour")
         else:
             # 진료 요청일이 주말인 경우
             queryset = WeekendTime.objects.filter(
                 doctor=data["doctor_id"], closed=False
             )
 
-        objs = queryset.filter(
-            Q(to_hour__gte=data["hour"], lunch_to__lt=data["hour"])
-            | Q(lunch_from__gt=data["hour"], from_hour__lte=data["hour"])
-        )
+            objs = queryset.filter(
+                to_hour__gte=data["hour"], from_hour__lte=data["hour"]
+            ).values_list("from_hour", "to_hour")
 
         if objs:
-            # TODO: 예약이 가능하다면 요청 만료 시각 계산
-            ## -> 진료 요청한 후 +20분까지 예약이 유효함.
-            ## -> 만약 요청된 시간에 의사가 부재일 경우 다음날 Or 점심시간 이후 +15분 까지 유효
-            pass
+            # 진료 예약이 가능하다면 요청 만료 시각 계산
+            # now = datetime.now()
+            now = datetime(2022, 1, 15, 1, 0)
+            hour_range_list = list(objs.first())
+            datetime_objs_list = (
+                self._convert_hour_list_to_datetime_object_list(
+                    hour_range_list, now
+                )
+            )
+
+            (
+                is_workday_weekday,
+                is_workday_weekend,
+                is_lunch_time,
+            ) = self._set_conditions(datetime_objs_list, now)
+
+            if is_workday_weekday or is_workday_weekend:
+                # 현재 의사가 부재중이 아닌 경우
+                # 요청 만료 시각은 현시점으로부터 20분 후
+                info = {
+                    "patient": data["patient_id"],
+                    "doctor": data["doctor_id"],
+                    "book_time": book_time,
+                    "expire_time": now + timedelta(minutes=20),
+                }
+            else:
+                # 현재 의사가 부재중인 경우 가장 가까운 다음 영업일을 찾는다.
+                if is_lunch_time:
+                    # 점심 시간으로 인한 부재
+                    info = {
+                        "patient": data["patient_id"],
+                        "doctor": data["doctor_id"],
+                        "book_time": book_time,
+                        "expire_time": datetime(now.year, now.month, now.day)
+                        + timedelta(hours=hour_range_list[2], minutes=15),
+                    }
+                else:
+                    # 금일 영업시간 종료로 인한 부재
+                    info = {
+                        "patient": data["patient_id"],
+                        "doctor": data["doctor_id"],
+                        "book_time": book_time,
+                        "expire_time": datetime(
+                            now.year, now.month, now.day + 1
+                        )
+                        + timedelta(hours=hour_range_list[0], minutes=15),
+                    }
+            serializer = self.get_serializer(data=info)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(
+                serializer.errors, status=status.HTTP_400_BAD_REQUEST
+            )
+
         else:
             return Response(
                 {"message": "진료 예약이 불가능합니다. 다른 시간을 선택해주세요."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        return Response(status=status.HTTP_200_OK)
