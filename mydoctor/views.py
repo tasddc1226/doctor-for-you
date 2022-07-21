@@ -21,8 +21,9 @@ class DoctorSeaerchView(ListAPIView):
 
     def get(self, request, *args, **kwargs):
         """
-        input : 검색 조건 쿼리
-        output : 검색 조건에 맞는 의사 리스트
+        특정 조건에 해당하는 의사를 검색합니다.
+        input : 의사 검색 조건 쿼리 파라메터
+        output : 검색 조건에 맞는 의사 이름 리스트
         """
         dept_name = request.GET.get("dept", None)
         hospital_name = request.GET.get("hospital", None)
@@ -50,8 +51,9 @@ class DoctorSeaerchView(ListAPIView):
 
     def post(self, request, *args, **kwargs):
         """
-        input : 특정 날짜와 시간
-        output : 영업 중인 의사 리스트
+        입력 시간에 영업중인 의사를 검색합니다.
+        input : 특정 시간(년/월/일/시/분)
+        output : 입력된 시간에 영업 중인 의사 리스트
         """
         data = json.loads(request.body)
         date_from_data = datetime(
@@ -122,6 +124,11 @@ class CareRequestView(ListAPIView):
         return is_workday_weekday, is_workday_weekend, is_lunch_time
 
     def get(self, request, *args, **kwargs):
+        """
+        한 의사의 모든 진료 요청을 검색합니다.
+        input : 의사 id
+        output : 특정 의사의 진료 예약 요청 리스트
+        """
         doctor_id = request.GET.get("id", None)
         self._is_valid_request_ids(None, doctor_id)
 
@@ -135,6 +142,11 @@ class CareRequestView(ListAPIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request, *args, **kwargs):
+        """
+        환자가 의사에게 진료 예약 요청을 전송합니다.
+        input : 환자 id, 의사 id, 희망 진료 시각(년/월/일/시/분)
+        output : CareRequestSerializer
+        """
         data = json.loads(request.body)
         self._is_valid_request_ids(data["patient_id"], data["doctor_id"])
 
@@ -228,5 +240,33 @@ class CareRequestView(ListAPIView):
         else:
             return Response(
                 {"message": "진료 예약이 불가능합니다. 다른 시간을 선택해주세요."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    def patch(self, request, id):
+        """
+        의사가 특정 진료 요청을 수락합니다.
+        input : 진료 요청 id
+        output : CareRequestSerializer
+        """
+        obj = self.get_queryset().get(id=id)
+
+        if obj and obj.is_booked == False:
+            now = datetime.now()
+            if now > obj.expire_time:
+                return Response(
+                    {"message": "예약 요청이 만료되었습니다."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            data = {"is_booked": True}
+            serializer = self.get_serializer(obj, data=data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        else:
+            return Response(
+                {"message": "존재하지 않거나 이미 수락된 예약입니다."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
