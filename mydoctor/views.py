@@ -7,7 +7,11 @@ from django.shortcuts import get_object_or_404
 
 import json
 from .models import Doctor, Patient, WeekDayTime, WeekendTime, CareRequestList
-from .serializers import DoctorNameSerializer, CareRequestSerializer
+from .serializers import (
+    DoctorNameSerializer,
+    CareRequestSerializer,
+    CareRequestListSerializer,
+)
 from datetime import datetime, timedelta, date
 
 
@@ -87,8 +91,8 @@ class CareRequestView(ListAPIView):
 
     def _is_valid_request_ids(self, p_id, d_id):
         ## 환자 id, 의사 id 예외 처리
-        patient = get_object_or_404(Patient, id=p_id)
-        doctor = get_object_or_404(Doctor, id=d_id)
+        patient = get_object_or_404(Patient, id=p_id) if p_id else None
+        doctor = get_object_or_404(Doctor, id=d_id) if d_id else None
 
     def _convert_hour_list_to_datetime_object_list(self, hour_list, now):
         # ex) [9, 12, 13, 18] -> [09:00, 12:00, 13:00, 18:00]
@@ -116,6 +120,19 @@ class CareRequestView(ListAPIView):
             )
             is_lunch_time = False
         return is_workday_weekday, is_workday_weekend, is_lunch_time
+
+    def get(self, request, *args, **kwargs):
+        doctor_id = request.GET.get("id", None)
+        self._is_valid_request_ids(None, doctor_id)
+
+        results = (
+            self.get_queryset()
+            .select_related("patient")
+            .filter(doctor=doctor_id, is_booked=False)
+        )
+
+        serializer = CareRequestListSerializer(results, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request, *args, **kwargs):
         data = json.loads(request.body)
@@ -204,12 +221,9 @@ class CareRequestView(ListAPIView):
                         + timedelta(hours=hour_range_list[0], minutes=15),
                     }
             serializer = self.get_serializer(data=info)
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data, status=status.HTTP_201_CREATED)
-            return Response(
-                serializer.errors, status=status.HTTP_400_BAD_REQUEST
-            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
 
         else:
             return Response(
