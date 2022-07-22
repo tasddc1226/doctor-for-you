@@ -19,9 +19,10 @@
     ❯ source 프로젝트경로/doctor-for-you/venv/bin/activate
     ```
 
-4. 아래의 명령어로 가상환경에 의존성 설치를 진행합니다.
+4. 아래의 명령어로 pip upgrade 설치 후 가상환경에 의존성 설치를 진행합니다.
 
     ```bash
+    ❯ pip install --upgrade pip
     ❯ pip install -r requirements.txt
     ```
 

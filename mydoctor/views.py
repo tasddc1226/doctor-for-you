@@ -249,7 +249,13 @@ class CareRequestView(ListAPIView):
         input : 진료 요청 id
         output : CareRequestSerializer
         """
-        obj = self.get_queryset().get(id=id)
+        try:
+            obj = self.get_queryset().get(id=id)
+        except CareRequestList.DoesNotExist:
+            return Response(
+                {"message": "해당 진료 요청이 존재하지 않습니다."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         if obj and obj.is_booked == False:
             now = datetime.now()
@@ -267,6 +273,6 @@ class CareRequestView(ListAPIView):
 
         else:
             return Response(
-                {"message": "존재하지 않거나 이미 수락된 예약입니다."},
+                {"message": "이미 수락된 진료 예약 요청입니다."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
