@@ -123,6 +123,27 @@ class CareRequestView(ListAPIView):
             is_lunch_time = False
         return is_workday_weekday, is_workday_weekend, is_lunch_time
 
+    def _get_next_working_day(self, working_day_list, now):
+        # 다음 영업일이 요청 시점으로 부터 얼마나 떨어져있는지 계산
+        # 영업일 범위가 [1(월), 5(금)]인 경우,
+        # 요청 시점이 범위내에 있다면 step의 값은 1
+        # 요청 시점이 금요일 영업시간 이후의 요청인 경우
+        # step의 값은 3
+        now_no = now.isoweekday()
+        if working_day_list[0] <= now_no < working_day_list[1]:
+            step = 1
+        else:
+            # 다음날 영업을 하지 않는 경우
+            step = 1
+            while True:
+                if now_no == 7:
+                    now_no = 1
+                if working_day_list[0] <= now_no < working_day_list[1]:
+                    break
+                step += 1
+                now_no += 1
+        return step
+
     def get(self, request, *args, **kwargs):
         """
         한 의사의 모든 진료 요청을 검색합니다.
@@ -200,38 +221,49 @@ class CareRequestView(ListAPIView):
                 is_lunch_time,
             ) = self._set_conditions(datetime_objs_list, now)
 
+            info = {
+                "patient": data["patient_id"],
+                "doctor": data["doctor_id"],
+                "book_time": book_time,
+            }
+
             if is_workday_weekday or is_workday_weekend:
                 # 현재 의사가 부재중이 아닌 경우
                 # 요청 만료 시각은 현시점으로부터 20분 후
-                info = {
-                    "patient": data["patient_id"],
-                    "doctor": data["doctor_id"],
-                    "book_time": book_time,
-                    "expire_time": now + timedelta(minutes=20),
-                }
+                info.update(
+                    {
+                        "expire_time": now + timedelta(minutes=20),
+                    }
+                )
             else:
                 # 현재 의사가 부재중인 경우 가장 가까운 다음 영업일을 찾는다.
                 if is_lunch_time:
                     # 점심 시간으로 인한 부재
-                    info = {
-                        "patient": data["patient_id"],
-                        "doctor": data["doctor_id"],
-                        "book_time": book_time,
-                        "expire_time": datetime(now.year, now.month, now.day)
-                        + timedelta(hours=hour_range_list[2], minutes=15),
-                    }
+                    info.update(
+                        {
+                            "expire_time": datetime(
+                                now.year, now.month, now.day
+                            )
+                            + timedelta(hours=hour_range_list[2], minutes=15),
+                        }
+                    )
                 else:
                     # 금일 영업시간 종료로 인한 부재
-                    # TODO: 주말에 영업을 하지 않는 의사에 대한 다음 영업일 찾기
-                    info = {
-                        "patient": data["patient_id"],
-                        "doctor": data["doctor_id"],
-                        "book_time": book_time,
-                        "expire_time": datetime(
-                            now.year, now.month, now.day + 1
-                        )
-                        + timedelta(hours=hour_range_list[0], minutes=15),
-                    }
+                    # 주말에 영업을 하지 않는 의사에 대한 다음 영업일 찾기
+                    obj = WeekDayTime.objects.filter(
+                        doctor=data["doctor_id"]
+                    ).values_list("weekday_from", "weekday_to")
+                    working_day_list = list(obj.first())
+                    step = self._get_next_working_day(working_day_list, now)
+
+                    info.update(
+                        {
+                            "expire_time": datetime(
+                                now.year, now.month, now.day + step
+                            )
+                            + timedelta(hours=hour_range_list[0], minutes=15),
+                        }
+                    )
             serializer = self.get_serializer(data=info)
             serializer.is_valid(raise_exception=True)
             serializer.save()
