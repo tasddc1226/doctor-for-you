@@ -257,7 +257,7 @@ class CareRequestView(ListAPIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        if obj and obj.is_booked == False:
+        if obj.is_booked == False:
             now = datetime.now()
             if now > obj.expire_time:
                 return Response(
@@ -273,6 +273,6 @@ class CareRequestView(ListAPIView):
 
         else:
             return Response(
-                {"message": "이미 수락된 진료 예약 요청입니다."},
+                {"message": "이미 수락된 예약입니다."},
                 status=status.HTTP_400_BAD_REQUEST,
             )

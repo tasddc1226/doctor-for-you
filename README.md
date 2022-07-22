@@ -318,14 +318,35 @@
     ```
 
 ### 진료 요청 수락이 불가한 경우
-- **expire_time이 만료된 경우**
-- 또는 **이미 요청이 수락이 된 경우**
+- **존재하지 않는 요청인 경우**
+
+- `Server Response`
+
+    ```json
+    // status: 404
+    {
+	    "message": "해당 진료 요청이 존재하지 않습니다."
+    }
+    ```
+
+- **이미 요청이 수락이 된 경우**
 
 - `Server Response`
 
     ```json
     // status: 400
     {
-        "message": "존재하지 않거나 이미 수락된 예약입니다."
+	    "message": "이미 수락된 예약입니다."
+    }
+    ```
+
+- **expire_time이 만료된 경우**
+
+- `Server Response`
+
+    ```json
+    // status: 400
+    {
+	    "message": "예약 요청이 만료되었습니다."
     }
     ```
